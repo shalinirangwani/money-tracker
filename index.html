@@ -135,6 +135,7 @@ h1{font-family:var(--f-display);font-weight:800;font-size:1.5rem;letter-spacing:
 .plan-note{margin-top:12px;padding:6px 12px;border-radius:10px;background:var(--sunk);font-size:.86rem;display:flex;flex-direction:column}
 .goalrow{display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-top:1px solid var(--line)}
 .goalrow:first-child{border-top:0}
+.sched-wrap{overflow-x:auto;margin-top:6px}.sched{width:100%;border-collapse:collapse;font-size:.8rem}.sched th{text-align:right;font-weight:600;color:var(--muted);font-size:.74rem;padding:6px 4px;border-bottom:1px solid var(--line);vertical-align:bottom}.sched th:first-child,.sched td:first-child{text-align:left}.sched td{text-align:right;padding:8px 4px;border-bottom:1px solid var(--line);white-space:nowrap}.sched tr.cur td{background:var(--sunk);font-weight:600}.sched tr.past td{color:var(--muted)}.sched td small{display:block;font-size:.72rem;color:var(--muted);font-weight:400}.sched td small.over{color:var(--danger)}.sched td.neg{color:var(--danger)}
 .goalrow b{white-space:nowrap}
 .goalrow.bad b{color:var(--danger)}
 .goalrow.good b{color:var(--accent)}
@@ -290,6 +291,13 @@ h1{font-family:var(--f-display);font-weight:800;font-size:1.5rem;letter-spacing:
         <div class="plan-note" id="planNote"></div>
         <ul class="paylist" id="payList"></ul>
       </section>
+
+      <section class="panel" aria-label="Month-by-month plan">
+        <div class="row"><p class="eyebrow">Month-by-month plan</p><span class="pill">No loans, no interest</span></div>
+        <div id="loadPlan" hidden style="margin-top:10px"><p class="small" style="margin:0 0 10px">Your November 2026 plan is ready: card balance AED 16,062.58, spend goals 600 / 950 / 1,300 / 1,300 / 1,500, and the bill for each month.</p><button class="btn" id="loadPlanBtn">Load my November plan</button></div>
+        <div class="sched-wrap" id="schedWrap"><table class="sched" id="schedTbl"><thead><tr><th>Month</th><th>Spend goal</th><th>Salary goal</th><th>Card bill<br><small>due 27th</small></th><th>Total in</th><th>Left over</th></tr></thead><tbody></tbody></table>
+        <p class="small" style="margin:10px 0 0">Total in for November includes family help and your cash. Keep each month's left-over in your debit account for the next bill. The bill on the 27th is that month's installments plus the previous month's spending.</p></div>
+      </section>
     </div>
 
     <div class="col">
@@ -343,7 +351,8 @@ h1{font-family:var(--f-display);font-weight:800;font-size:1.5rem;letter-spacing:
   <div class="fields">
     <div class="field"><label for="pBudget">Spending per month</label><input id="pBudget" inputmode="decimal"></div>
     <div class="field"><label for="pPay">Card payment per month</label><input id="pPay" inputmode="decimal"></div>
-    <div class="field"><label for="pStart">Card balance when I started</label><input id="pStart" inputmode="decimal"></div>
+    <div class="field"><label for="pStart">Card balance owed</label><input id="pStart" inputmode="decimal"></div>
+    <div class="field"><label for="pAsOf">…including everything up to</label><input type="date" id="pAsOf"></div>
   </div>
   <div class="fields" style="margin-top:12px">
     <div class="field"><label for="pTarget">Clear the card by</label><input type="month" id="pTarget"></div>
@@ -385,6 +394,9 @@ const CATS=[
 ];
 const CAT=Object.fromEntries(CATS.map(c=>[c.id,c]));
 const DEFAULT_PLAN={monthlyBudget:0,cardPayment:0,cardStart:0,targetMonth:'',income:0,debitFrom:'',catNames:{}};
+const NOV_PLAN={cardStart:16062.58,cardAsOf:'2026-11-01',monthlyBudget:1500,cardPayment:3000,income:3000,targetMonth:'2027-08',schedule:[{m:'2026-11',inst:3233.25,prevSpend:2709.94,goal:600,income:5950,salary:2500},{m:'2026-12',inst:2972.08,goal:950,income:4500,salary:4500},{m:'2027-01',inst:2972.08,goal:1300,income:3000,salary:3000},{m:'2027-02',inst:1694.91,goal:1300,income:3000,salary:3000},{m:'2027-03',inst:1694.91,goal:1500,income:3000,salary:3000},{m:'2027-04',inst:157.08,goal:1500,income:3000,salary:3000},{m:'2027-05',inst:157.08,goal:1500,income:3000,salary:3000},{m:'2027-06',inst:157.08,goal:1500,income:3000,salary:3000},{m:'2027-07',inst:157.08,goal:1500,income:3000,salary:3000},{m:'2027-08',inst:157.08,goal:1500,income:3000,salary:3000},{m:'2027-09',inst:0,goal:1500,income:3000,salary:3000}]};
+function schedRows(){const sc=Array.isArray(S.plan.schedule)?S.plan.schedule:[];let carry=0,prev=null;return sc.map(r=>{const bill=(+r.inst||0)+(r.prevSpend!=null?+r.prevSpend:(prev?+prev.goal:0));const left=carry+(+r.income||0)-bill;carry=left;prev=r;return {...r,bill,left}})}
+function goalFor(m){const r=(S.plan.schedule||[]).find(x=>x.m===m);return r?+r.goal:(+S.plan.monthlyBudget||0)}
 const CAT_DEFAULTS={shop1:'Family shopping',shop2:'My shopping'};
 function catName(id){const n=S&&S.plan&&S.plan.catNames;return (n&&n[id])||CAT_DEFAULTS[id]}
 function defTarget(){const d=new Date();d.setMonth(d.getMonth()+12);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`}
@@ -408,7 +420,7 @@ function toast(msg){const t=$('toast');t.textContent=msg;t.hidden=false;clearTim
 function render(){
   const today=new Date(), todayS=ymd(today), curM=ym(today);
   const [y,m]=S.month.split('-').map(Number), mi=m-1, days=dim(y,mi);
-  const budget=+S.plan.monthlyBudget||0;
+  const budget=goalFor(S.month);
   $('monthLabel').textContent=new Date(y,mi,1).toLocaleDateString('en-GB',{month:'long',year:'numeric'});
   $('nextM').disabled = S.month>=curM;
 
@@ -445,9 +457,10 @@ function render(){
     pill.textContent=ahead?'Spending faster than planned':'On track'; pill.className='pill'+(ahead?' warn':'');
   }
 
-  renderWeek(today,todayS,budget);
+  renderWeek(today,todayS,goalFor(ym(today)));
   renderCard(today);
   renderCats(monthExp,spent);
+  renderSched();
   renderList(monthExp);
 }
 
@@ -481,11 +494,12 @@ function renderWeek(today,todayS,budget){
 }
 
 function renderCard(today){
-  const PL=S.plan, start=+PL.cardStart||0, pay=+PL.cardPayment||0;
-  const pays=allPay();
+  const PL=S.plan, start=+PL.cardStart||0; const SR=schedRows(), thisRow=SR.find(r=>r.m===ym(today)); const pay=thisRow?Math.round(thisRow.bill*100)/100:(+PL.cardPayment||0);
+  const asOf=PL.cardAsOf||''; const after=x=>!asOf||(x.date||'')>asOf;
+  const pays=allPay().filter(after);
   const paid=pays.reduce((a,p)=>a+(+p.amount||0),0);
   const extra=pays.filter(p=>p.source&&p.source!=='me').reduce((a,p)=>a+(+p.amount||0),0);
-  const cardSpends=allExp().filter(e=>e.method!=='cash').reduce((a,e)=>a+(+e.amount||0),0);
+  const cardSpends=allExp().filter(e=>e.method!=='cash'&&after(e)).reduce((a,e)=>a+(+e.amount||0),0);
   const total=start+cardSpends;
   const owed=Math.max(total-paid,0);
   $('owed').textContent=aed(owed);
@@ -500,7 +514,7 @@ function renderCard(today){
   const target=PL.targetMonth||defTarget();
   const [ty,tm]=target.split('-').map(Number);
   const tLabel=new Date(ty,tm-1,1).toLocaleDateString('en-GB',{month:'long',year:'numeric'});
-  $('clearBy').textContent='Goal: clear by '+tLabel;
+  $('clearBy').textContent=thisRow?'Debt-free: September 2027':'Goal: clear by '+tLabel;
   // months still to pay: this month counts only if nothing paid yet this month
   let months=(ty*12+tm)-(today.getFullYear()*12+today.getMonth()+1)+1;
   if(paidThisMonth>0) months-=1;
@@ -508,7 +522,11 @@ function renderCard(today){
   note.innerHTML='';
   if(owed<=0){note.textContent='The card is at zero. Well done.';return}
   const line=(label,val,cls)=>{const r=document.createElement('div');r.className='goalrow'+(cls?' '+cls:'');const a=document.createElement('span');a.textContent=label;const b=document.createElement('b');b.className='num';b.textContent=val;r.append(a,b);note.append(r)};
-  if(months<=0){
+  if(thisRow){
+    line(`Card bill due 27 ${monName}`,aed(pay));
+    const nx=SR[SR.indexOf(thisRow)+1]; if(nx) line(`Next bill, 27 ${parseD(nx.m+'-01').toLocaleDateString('en-GB',{month:'short'})}`,aed(Math.round(nx.bill)));
+    line('Installments finish','August 2027','good');
+  } else if(months<=0){
     line(`Past your ${tLabel} goal`,aed(owed)+' left','bad');
   }else{
     const need=owed/months;
@@ -530,6 +548,22 @@ function renderCard(today){
   });
 }
 
+function renderSched(){
+  const has=Array.isArray(S.plan.schedule)&&S.plan.schedule.length;
+  $('loadPlan').hidden=!!has||!uid; $('schedWrap').hidden=!has;
+  const tb=$('schedTbl').querySelector('tbody'); tb.innerHTML='';
+  if(!has) return;
+  const curM=ym(new Date());
+  schedRows().forEach(r=>{
+    const tr=document.createElement('tr'); if(r.m===curM)tr.className='cur'; else if(r.m<curM)tr.className='past';
+    const mk=(t,cls)=>{const td=document.createElement('td');td.className='num'+(cls?' '+cls:'');td.textContent=t;tr.append(td);return td};
+    mk(parseD(r.m+'-01').toLocaleDateString('en-GB',{month:'short',year:'2-digit'}).replace(' ',' ’'));
+    const g=mk(fmt(+r.goal));
+    if(r.m<=curM){const sp=allExp().filter(e=>e.date&&e.date.startsWith(r.m)).reduce((a,e)=>a+(+e.amount||0),0);const sm=document.createElement('small');sm.textContent='spent '+fmt(Math.round(sp));if(sp>+r.goal)sm.className='over';g.append(sm)}
+    mk(fmt(+(r.salary!=null?r.salary:r.income))); mk(fmt(Math.round(r.bill))); mk(fmt(+r.income)); mk((r.left<0?'−':'+')+fmt(Math.abs(Math.round(r.left))), r.left<0?'neg':'');
+    tb.append(tr);
+  });
+}
 function renderCats(monthExp,spent){
   const by={}; monthExp.forEach(e=>{by[e.cat]=(by[e.cat]||0)+(+e.amount||0)});
   const rows=Object.entries(by).sort((a,b)=>b[1]-a[1]);
@@ -647,9 +681,10 @@ $('savePay').onclick=async()=>{
   addDoc('payments',{amount:Math.round(a*100)/100,date:$('payDate').value||ymd(new Date()),source:paySrc,createdAt:Date.now()});
   closeSheets();toast(`Payment of ${aed(a)} saved`);
 };
-$('openPlan').onclick=()=>{const P=S.plan;$('pBudget').value=P.monthlyBudget;$('pPay').value=P.cardPayment;$('pStart').value=P.cardStart;$('pTarget').value=P.targetMonth||defTarget();$('pIncome').value=P.income||'';$('pDebit').value=P.debitFrom||'';$('pCat1').value=catName('shop1');$('pCat2').value=catName('shop2');$('planErr').textContent='';openSheet('planSheet')};
+$('loadPlanBtn').onclick=()=>{ if(!uid)return; setDoc(doc(fs,'users',uid),{...NOV_PLAN,updatedAt:Date.now()},{merge:true}).then(()=>toast('November plan loaded')).catch(e=>toast(errText(e))) };
+$('openPlan').onclick=()=>{const P=S.plan;$('pBudget').value=P.monthlyBudget;$('pPay').value=P.cardPayment;$('pStart').value=P.cardStart;$('pAsOf').value=P.cardAsOf||'';$('pTarget').value=P.targetMonth||defTarget();$('pIncome').value=P.income||'';$('pDebit').value=P.debitFrom||'';$('pCat1').value=catName('shop1');$('pCat2').value=catName('shop2');$('planErr').textContent='';openSheet('planSheet')};
 $('savePlan').onclick=async()=>{
-  const p={monthlyBudget:num($('pBudget').value),cardPayment:num($('pPay').value),cardStart:num($('pStart').value),targetMonth:$('pTarget').value||defTarget(),income:num($('pIncome').value)||0,debitFrom:$('pDebit').value||'',catNames:{shop1:$('pCat1').value.trim()||CAT_DEFAULTS.shop1,shop2:$('pCat2').value.trim()||CAT_DEFAULTS.shop2}};
+  const p={monthlyBudget:num($('pBudget').value),cardPayment:num($('pPay').value),cardStart:num($('pStart').value),cardAsOf:$('pAsOf').value||'',targetMonth:$('pTarget').value||defTarget(),income:num($('pIncome').value)||0,debitFrom:$('pDebit').value||'',catNames:{shop1:$('pCat1').value.trim()||CAT_DEFAULTS.shop1,shop2:$('pCat2').value.trim()||CAT_DEFAULTS.shop2}};
   if(!(p.monthlyBudget>=0&&p.cardPayment>=0&&p.cardStart>=0)){$('planErr').textContent='Use numbers only, 0 or more.';return}
   setDoc(doc(fs,'users',uid),{...p,updatedAt:Date.now()},{merge:true}).catch(e=>toast(errText(e)));
   S.plan={...S.plan,...p}; buildChips(); render(); closeSheets(); toast('Plan saved');
